@@ -15,6 +15,12 @@
 #include <netinet/in.h>
 #include <netdb.h>
 
+#define COMMAND_FORWARD 0
+#define COMMAND_BACKWARD 1
+#define COMMAND_LEFT 2
+#define COMMAND_RIGHT 3
+#define COMMAND_STOP 4
+
 using namespace std;
 using namespace cv;
 //initial min and max HSV filter values.
@@ -207,13 +213,13 @@ void trackFilteredObject(int &x, int &y, Mat threshold, Mat &cameraFeed) {
 	}
 }
 
-void sendCommand(int socketfd, char *command)
+void sendCommand(int socketfd, char command)
 {
 	int n;
 	char buffer[256];
 
 	bzero(buffer,256);
-    	strcpy(buffer, command);
+    	strcpy(buffer, &command);
     	n = write(socketfd, buffer, strlen(buffer));
     	if (n < 0) 
          	error("ERROR writing to socket");
@@ -224,6 +230,11 @@ void sendCommand(int socketfd, char *command)
     	printf("Received: %s\n", buffer);
 }
 
+void onPositionUpdate(int x_b, int y_b, int x_g, int y_g, int socketfd, int last_command)
+{
+	
+}
+
 int main(int argc, char* argv[])
 {
 
@@ -231,6 +242,8 @@ int main(int argc, char* argv[])
 	//program
 	bool trackObjects = true;
 	bool useMorphOps = true;
+
+	int last_command = -1;
 
 	Point p;
 	//Matrix to store each frame of the webcam feed
@@ -240,11 +253,12 @@ int main(int argc, char* argv[])
 	//matrix storage for binary threshold image
 	Mat threshold;
 	Mat threshold2;
+	Mat threshold3;
 	//x and y values for the location of the object
 	int x_b = 0, y_b = 0;
 	int x_g = 0, y_g = 0;
 	//create slider bars for HSV filtering
-	//createTrackbars();
+	createTrackbars();
 	//video capture object to acquire webcam feed
 	VideoCapture capture;
 	//open capture object at location zero (default location for webcam)
@@ -257,7 +271,7 @@ int main(int argc, char* argv[])
 
 
 	int socketfd;
-	int portno = 20231;
+	int portno = 20232;
 	struct sockaddr_in serv_addr;
     	struct hostent *server;
 
@@ -267,7 +281,8 @@ int main(int argc, char* argv[])
 
 	string dest = "193.226.12.217";
 
-	server = gethostbyaddr(dest.c_str(), dest.length(), AF_INET);
+	//server = gethostbyaddr(dest.c_str(), dest.length(), AF_INET);
+	server = gethostbyname("193.226.12.217");
         if (server == NULL) {
            	fprintf(stderr,"ERROR, no such host\n");
         	exit(0);
@@ -285,7 +300,12 @@ int main(int argc, char* argv[])
 	if (connect(socketfd, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0) 
         	error("ERROR connecting");
 
-
+	//Test
+	
+	//sendCommand(socketfd, 'r');
+	//sendCommand(socketfd, 's');
+	
+	
 	while (1) {
 
 
@@ -299,7 +319,12 @@ int main(int argc, char* argv[])
 		cvtColor(cameraFeed, HSV, COLOR_BGR2HSV);
 		//filter HSV image between values and store filtered image to
 		//threshold matrix
+
 		inRange(HSV, Scalar(B_H_MIN, B_S_MIN, B_V_MIN), Scalar(B_H_MAX, B_S_MAX, B_V_MAX), threshold);
+
+		//Test detect object
+		//inRange(HSV, Scalar(H_MIN, S_MIN, V_MIN), Scalar(H_MAX, S_MAX, V_MAX), threshold);
+
 		inRange(HSV, Scalar(G_H_MIN, G_S_MIN, G_V_MIN), Scalar(G_H_MAX, G_S_MAX, G_V_MAX), threshold2);
 		//perform morphological operations on thresholded image to eliminate noise
 		//and emphasize the filtered object(s)
@@ -315,17 +340,20 @@ int main(int argc, char* argv[])
 		{
 			trackFilteredObject(x_b, y_b, threshold, cameraFeed);
 			trackFilteredObject(x_g, y_g, threshold2, cameraFeed);
+			onPositionUpdate(x_b, y_b, x_g, y_g, socketfd, last_command);
 		}
 
 		//show frames
 		imshow(windowName2, threshold);
 		imshow(windowName, cameraFeed);
+		//imshow(windowName1, HSV);
 		imshow(windowName1, threshold2);
 		setMouseCallback("Original Image", on_mouse, &p);
 		//delay 30ms so that screen can refresh.
 		//image will not appear without this waitKey() command
 		waitKey(30);
 	}
+	
 
 	close(socketfd);
 
