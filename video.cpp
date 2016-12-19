@@ -15,11 +15,11 @@
 #include <netinet/in.h>
 #include <netdb.h>
 
-#define COMMAND_FORWARD 0
-#define COMMAND_BACKWARD 1
-#define COMMAND_LEFT 2
-#define COMMAND_RIGHT 3
-#define COMMAND_STOP 4
+#define COMMAND_FORWARD 'f'
+#define COMMAND_BACKWARD 'b'
+#define COMMAND_LEFT 'l'
+#define COMMAND_RIGHT 'r'
+#define COMMAND_STOP 's'
 
 using namespace std;
 using namespace cv;
@@ -213,7 +213,7 @@ void trackFilteredObject(int &x, int &y, Mat threshold, Mat &cameraFeed) {
 	}
 }
 
-void sendCommand(int socketfd, char command)
+void sendCommand(int socketfd, char command, char last_command)
 {
 	int n;
 	char buffer[256];
@@ -228,11 +228,65 @@ void sendCommand(int socketfd, char command)
     	if (n < 0) 
          	error("ERROR reading from socket");
     	printf("Received: %s\n", buffer);
+		last_command = command;
 }
 
-void onPositionUpdate(int x_b, int y_b, int x_g, int y_g, int socketfd, int last_command)
+void onPositionUpdate(Point green, Point blue, Point front, int socketfd, char last_command)
 {
-	
+	switch(robot)
+	{
+		//The robot is the green one
+		case 0:
+		{
+			if(blue.X == 0 && blue.Y == 0)
+			{
+				sendCommand(socketfd, COMMAND_STOP, last_command);
+				//win
+			}
+			else if(almostColinear(green, front, blue) && (last_command == COMMAND_LEFT || last_command == COMMAND_RIGHT))
+			{
+				sendCommand(socketfd, COMMAND_STOP, last_command);
+				//backwards
+				if(green.X - blue.X < front.X - blue.X)
+				{
+					sendCommand(socketfd, COMMAND_BACKWARD, last_command);
+				}
+				else
+				{
+					sendCommand(socketfd, COMMAND_FORWARD, last_command);
+				}
+			}
+			else if(isLeft(green, front, blue)) {
+				if(last_command != COMMAND_LEFT)
+				{
+					sendCommand(socketfd, COMMAND_STOP, last_command);
+				}
+				sendCommand(socketfd, COMMAND_LEFT, last_command);
+			}
+			else
+			{
+				if(last_command != COMMAND_RIGHT)
+				{
+					sendCommand(socketfd, COMMAND_STOP, last_command);
+				}
+				sendCommand(socketfd, COMMAND_RIGHT, last_command);
+			}
+			break;
+		}
+		//The robot is the blue one
+		case 1:
+		{
+			break;
+		}
+	}
+}
+
+public bool isLeft(Point a, Point b, Point c){
+     return ((b.X - a.X)*(c.Y - a.Y) - (b.Y - a.Y)*(c.X - a.X)) > 0;
+}
+
+public bool almostColinear(Point a, Point b, Point c){
+     return ((b.X - a.X)*(c.Y - a.Y) - (b.Y - a.Y)*(c.X - a.X)) < 1 && ((b.X - a.X)*(c.Y - a.Y) - (b.Y - a.Y)*(c.X - a.X)) > -1;
 }
 
 int main(int argc, char* argv[])
@@ -244,6 +298,9 @@ int main(int argc, char* argv[])
 	bool useMorphOps = true;
 
 	int last_command = -1;
+	
+	//0 = GREEN; 1 = BLUE
+	int robot = atoi(argv[1]);
 
 	Point p;
 	//Matrix to store each frame of the webcam feed
@@ -257,6 +314,7 @@ int main(int argc, char* argv[])
 	//x and y values for the location of the object
 	int x_b = 0, y_b = 0;
 	int x_g = 0, y_g = 0;
+	int x_front = 0; y_front = 0;
 	//create slider bars for HSV filtering
 	createTrackbars();
 	//video capture object to acquire webcam feed
@@ -326,6 +384,9 @@ int main(int argc, char* argv[])
 		//inRange(HSV, Scalar(H_MIN, S_MIN, V_MIN), Scalar(H_MAX, S_MAX, V_MAX), threshold);
 
 		inRange(HSV, Scalar(G_H_MIN, G_S_MIN, G_V_MIN), Scalar(G_H_MAX, G_S_MAX, G_V_MAX), threshold2);
+		
+		inRange(HSV, Scalar(Y_H_MIN, Y_S_MIN, Y_V_MIN), Scalar(Y_H_MAX, Y_S_MAX, Y_V_MAX), threshold3);
+		
 		//perform morphological operations on thresholded image to eliminate noise
 		//and emphasize the filtered object(s)
 		if (useMorphOps)
@@ -340,7 +401,17 @@ int main(int argc, char* argv[])
 		{
 			trackFilteredObject(x_b, y_b, threshold, cameraFeed);
 			trackFilteredObject(x_g, y_g, threshold2, cameraFeed);
-			onPositionUpdate(x_b, y_b, x_g, y_g, socketfd, last_command);
+			trackFilteredObject(x_front, y_front, threshold3, cameraFeed);
+			
+			Point green(x_g, y_g);
+			Point blue(x_b, y_b);
+			Point nose(x_front, y_front);
+			/*
+			if(robot == 0)
+			{
+				determineNosePosition(x_g, y_g, x_front, y_front,
+			}*/
+			onPositionUpdate(robot, green, blue, nose, socketfd, last_command);
 		}
 
 		//show frames
