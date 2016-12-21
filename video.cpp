@@ -32,11 +32,25 @@ int S_MAX = 256;
 int V_MIN = 0;
 int V_MAX = 256;
 
-int B_H_MIN = 92;
+int Y_H_MIN = 92;
+int Y_H_MAX = 255;
+int Y_S_MIN = 135;
+int Y_S_MAX = 255;
+int Y_V_MIN = 176;
+int Y_V_MAX = 255;
+
+int R_H_MIN = 110;
+int R_H_MAX = 180;
+int R_S_MIN = 94;
+int R_S_MAX = 239;
+int R_V_MIN = 198;
+int R_V_MAX = 256;
+
+int B_H_MIN = 81;
 int B_H_MAX = 255;
-int B_S_MIN = 135;
+int B_S_MIN = 176;
 int B_S_MAX = 255;
-int B_V_MIN = 176;
+int B_V_MIN = 58;
 int B_V_MAX = 255;
 
 int G_H_MIN = 54;
@@ -231,14 +245,22 @@ void sendCommand(int socketfd, char command, char last_command)
 		last_command = command;
 }
 
-void onPositionUpdate(Point green, Point blue, Point front, int socketfd, char last_command)
+bool isLeft(Point a, Point b, Point c){
+     return ((b.x - a.x)*(c.y - a.y) - (b.y - a.y)*(c.x - a.x)) > 0;
+}
+
+bool almostColinear(Point a, Point b, Point c){
+     return ((b.x - a.x)*(c.y - a.y) - (b.y - a.y)*(c.x - a.x)) < 1 && ((b.x - a.x)*(c.y - a.y) - (b.y - a.y)*(c.x - a.x)) > -1;
+}
+
+void onPositionUpdate(Point green, Point blue, Point front, int socketfd, char last_command, int robot)
 {
 	switch(robot)
 	{
 		//The robot is the green one
 		case 0:
 		{
-			if(blue.X == 0 && blue.Y == 0)
+			if(blue.x == 0 && blue.y == 0)
 			{
 				sendCommand(socketfd, COMMAND_STOP, last_command);
 				//win
@@ -247,7 +269,7 @@ void onPositionUpdate(Point green, Point blue, Point front, int socketfd, char l
 			{
 				sendCommand(socketfd, COMMAND_STOP, last_command);
 				//backwards
-				if(green.X - blue.X < front.X - blue.X)
+				if(green.x - blue.x < front.x - blue.x)
 				{
 					sendCommand(socketfd, COMMAND_BACKWARD, last_command);
 				}
@@ -281,26 +303,28 @@ void onPositionUpdate(Point green, Point blue, Point front, int socketfd, char l
 	}
 }
 
-public bool isLeft(Point a, Point b, Point c){
-     return ((b.X - a.X)*(c.Y - a.Y) - (b.Y - a.Y)*(c.X - a.X)) > 0;
-}
-
-public bool almostColinear(Point a, Point b, Point c){
-     return ((b.X - a.X)*(c.Y - a.Y) - (b.Y - a.Y)*(c.X - a.X)) < 1 && ((b.X - a.X)*(c.Y - a.Y) - (b.Y - a.Y)*(c.X - a.X)) > -1;
-}
-
 int main(int argc, char* argv[])
 {
-
 	//some boolean variables for different functionality within this
 	//program
 	bool trackObjects = true;
 	bool useMorphOps = true;
 
+	bool run = false;
+
+	if(argc != 2 && run == true)
+	{
+		printf("USAGE: %s <controlled_robot_no>\n", argv[0]);
+		exit(-1);
+	}
+
 	int last_command = -1;
-	
-	//0 = GREEN; 1 = BLUE
-	int robot = atoi(argv[1]);
+	int robot = 0;
+	if(run)
+	{
+		//0 = GREEN; 1 = BLUE
+		robot = atoi(argv[1]);
+	}
 
 	Point p;
 	//Matrix to store each frame of the webcam feed
@@ -314,13 +338,14 @@ int main(int argc, char* argv[])
 	//x and y values for the location of the object
 	int x_b = 0, y_b = 0;
 	int x_g = 0, y_g = 0;
-	int x_front = 0; y_front = 0;
+	int x_front = 0, y_front = 0;
 	//create slider bars for HSV filtering
 	createTrackbars();
 	//video capture object to acquire webcam feed
 	VideoCapture capture;
 	//open capture object at location zero (default location for webcam)
 	capture.open("rtmp://172.16.254.63/live/live");
+	printf("Connected to video stream\n");
 	//set height and width of capture frame
 	capture.set(CV_CAP_PROP_FRAME_WIDTH, FRAME_WIDTH);
 	capture.set(CV_CAP_PROP_FRAME_HEIGHT, FRAME_HEIGHT);
@@ -333,30 +358,37 @@ int main(int argc, char* argv[])
 	struct sockaddr_in serv_addr;
     	struct hostent *server;
 
-	socketfd = socket(AF_INET, SOCK_STREAM, 0);
-    	if (socketfd < 0) 
-        	error("ERROR opening socket");
+	if(run)
+	{
+		printf("Attempting connection to robot...\n");
+		socketfd = socket(AF_INET, SOCK_STREAM, 0);
+	    	if (socketfd < 0) 
+			error("ERROR opening socket");
 
-	string dest = "193.226.12.217";
+		string dest = "193.226.12.217";
 
-	//server = gethostbyaddr(dest.c_str(), dest.length(), AF_INET);
-	server = gethostbyname("193.226.12.217");
-        if (server == NULL) {
-           	fprintf(stderr,"ERROR, no such host\n");
-        	exit(0);
-        }
+		//server = gethostbyaddr(dest.c_str(), dest.length(), AF_INET);
+		server = gethostbyname("193.226.12.217");
+		if (server == NULL) {
+		   	fprintf(stderr,"ERROR, no such host\n");
+			exit(0);
+		}
+	
 
-	bzero((char *) &serv_addr, sizeof(serv_addr));
+		bzero((char *) &serv_addr, sizeof(serv_addr));
 
-	serv_addr.sin_family = AF_INET;
-        bcopy((char *)server->h_addr, 
-         	(char *)&serv_addr.sin_addr.s_addr,
-         	server->h_length);
-        serv_addr.sin_port = htons(portno);
+		serv_addr.sin_family = AF_INET;
+		bcopy((char *)server->h_addr, 
+		 	(char *)&serv_addr.sin_addr.s_addr,
+		 	server->h_length);
+		serv_addr.sin_port = htons(portno);
 
 
-	if (connect(socketfd, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0) 
-        	error("ERROR connecting");
+		if (connect(socketfd, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0) 
+			error("ERROR connecting");
+
+		printf("Connection successful.\n");
+	}
 
 	//Test
 	
@@ -369,11 +401,12 @@ int main(int argc, char* argv[])
 
 		//store image to matrix
 		capture.read(cameraFeed);
-		//convert frame from BGR to HSV colorspace
+		
 		if(cameraFeed.empty())
 		{
 		    	continue;
 		}	
+		//convert frame from BGR to HSV colorspace
 		cvtColor(cameraFeed, HSV, COLOR_BGR2HSV);
 		//filter HSV image between values and store filtered image to
 		//threshold matrix
@@ -383,9 +416,19 @@ int main(int argc, char* argv[])
 		//Test detect object
 		//inRange(HSV, Scalar(H_MIN, S_MIN, V_MIN), Scalar(H_MAX, S_MAX, V_MAX), threshold);
 
-		inRange(HSV, Scalar(G_H_MIN, G_S_MIN, G_V_MIN), Scalar(G_H_MAX, G_S_MAX, G_V_MAX), threshold2);
 		
-		inRange(HSV, Scalar(Y_H_MIN, Y_S_MIN, Y_V_MIN), Scalar(Y_H_MAX, Y_S_MAX, Y_V_MAX), threshold3);
+
+		inRange(HSV, Scalar(G_H_MIN, G_S_MIN, G_V_MIN), Scalar(G_H_MAX, G_S_MAX, G_V_MAX), threshold2);
+
+		Mat mask1, mask2;
+		//RED 
+		//TODO Define values
+	    	inRange(HSV, Scalar(0, 70, 50), Scalar(10, 255, 255), mask1);
+	    	inRange(HSV, Scalar(170, 70, 50), Scalar(180, 255, 255), mask2);
+
+	    	threshold3 = mask1 | mask2;
+		
+		//inRange(HSV, Scalar(R_H_MIN, R_S_MIN, R_V_MIN), Scalar(R_H_MAX, R_S_MAX, R_V_MAX), threshold3);
 		
 		//perform morphological operations on thresholded image to eliminate noise
 		//and emphasize the filtered object(s)
@@ -393,6 +436,7 @@ int main(int argc, char* argv[])
 		{
 			morphOps(threshold);
 			morphOps(threshold2);
+			morphOps(threshold3);
 		}
 		//pass in thresholded frame to our object tracking function
 		//this function will return the x and y coordinates of the
@@ -403,22 +447,26 @@ int main(int argc, char* argv[])
 			trackFilteredObject(x_g, y_g, threshold2, cameraFeed);
 			trackFilteredObject(x_front, y_front, threshold3, cameraFeed);
 			
-			Point green(x_g, y_g);
-			Point blue(x_b, y_b);
-			Point nose(x_front, y_front);
-			/*
-			if(robot == 0)
+			if(run)
 			{
-				determineNosePosition(x_g, y_g, x_front, y_front,
-			}*/
-			onPositionUpdate(robot, green, blue, nose, socketfd, last_command);
+				Point green(x_g, y_g);
+				Point blue(x_b, y_b);
+				Point nose(x_front, y_front);
+				/*
+				if(robot == 0)
+				{
+					determineNosePosition(x_g, y_g, x_front, y_front,
+				}*/
+				onPositionUpdate(green, blue, nose, socketfd, last_command, robot);
+			}
 		}
 
 		//show frames
-		imshow(windowName2, threshold);
+		//imshow(windowName2, threshold);
 		imshow(windowName, cameraFeed);
 		//imshow(windowName1, HSV);
-		imshow(windowName1, threshold2);
+		//imshow(windowName1, threshold2);
+		//imshow(windowName, threshold3);
 		setMouseCallback("Original Image", on_mouse, &p);
 		//delay 30ms so that screen can refresh.
 		//image will not appear without this waitKey() command
